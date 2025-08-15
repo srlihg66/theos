@@ -1,4 +1,4 @@
-name: Build WeChat & WCPulse (Full Optimized)
+name: Build WeChat & WCPulse (Ultra Fast)
 
 on:
   push:
@@ -19,20 +19,24 @@ jobs:
         with:
           submodules: true
 
-      # 2. Cache Theos + SDKs
-      - name: Cache Theos
+      # 2. Cache Theos + SDKs + Toolchain
+      - name: Cache Theos + SDK + Toolchain
         id: theos-cache
         uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}/theos
-          key: ${{ runner.os }}-theos-${{ hashFiles('**/WeChat.zip', '**/WCPulse源代码.zip') }}
+          path: |
+            ${{ github.workspace }}/theos
+            ${{ github.workspace }}/.brew_cache
+            ${{ github.workspace }}/.apt_cache
+          key: ${{ runner.os }}-theos-${{ hashFiles('**/WeChat.zip','**/WCPulse源代码.zip') }}
           restore-keys: |
             ${{ runner.os }}-theos-
 
-      # 3. Install dependencies (macOS)
+      # 3. Install macOS dependencies
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
+          export HOMEBREW_CACHE=${{ github.workspace }}/.brew_cache
           brew update
           brew install git perl clang make dpkg unzip curl
           curl -LO https://github.com/theos/ldid/releases/latest/download/ldid_mac
@@ -40,10 +44,12 @@ jobs:
           sudo chmod +x /usr/local/bin/ldid
           echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
 
-      # 4. Install dependencies (Linux)
+      # 4. Install Linux dependencies
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt update && sudo apt install -y build-essential fakeroot libtinfo5 libz3-dev rsync curl perl unzip git libplist-utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential fakeroot libtinfo5 libz3-dev rsync curl perl unzip git libplist-utils
 
       # 5. Setup Theos environment
       - name: Setup Theos
@@ -54,16 +60,16 @@ jobs:
             git clone --recursive https://github.com/roothide/theos $THEOS
           fi
 
-      # 6. Enable Orion branch (optional Swift support)
+      # 6. Enable Orion branch (Swift tweak)
       - name: Enable Orion
-        if: matrix.os == 'ubuntu-latest' || matrix.os == 'macos-latest'
         run: |
           THEOS=${{ github.workspace }}/theos
           cd $THEOS
           git fetch
           git checkout orion || echo "Orion branch not found, using default"
+          git submodule update --init --recursive
 
-      # 7. Download iOS SDKs (only if missing)
+      # 7. Download iOS SDKs (cache-aware)
       - name: Download iOS SDKs
         run: |
           THEOS=${{ github.workspace }}/theos
@@ -73,7 +79,7 @@ jobs:
             tar -xf $THEOS/sdks/iPhoneOS16.2.sdk.tar.xz -C $THEOS/sdks
           fi
 
-      # 8. Linux Swift toolchain (for Orion / Swift tweaks)
+      # 8. Linux Swift toolchain (cache-aware)
       - name: Linux Swift toolchain
         if: runner.os == 'Linux'
         run: |
