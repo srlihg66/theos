@@ -1,4 +1,4 @@
-name: Build WeChat & WCPulse from ZIP
+name: Build WeChat & WCPulse from ZIP (Linux + SDK)
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y git perl clang make fakeroot dpkg unzip curl
+          sudo apt install -y git perl clang make fakeroot dpkg unzip curl lzip wget libncurses5
           # 安装最新的 ldid
           curl -LO https://github.com/theos/ldid/releases/latest/download/ldid_linux_x86_64
           sudo mv ldid_linux_x86_64 /usr/local/bin/ldid
@@ -26,7 +26,17 @@ jobs:
         run: |
           git clone --recursive https://github.com/theos/theos.git ~/theos
           echo "THEOS=~/theos" >> $GITHUB_ENV
-          echo "PATH=$PATH:~/theos/bin" >> $GITHUB_ENV
+          echo "$HOME/theos/bin" >> $GITHUB_PATH
+
+      - name: Install iOS SDK
+        run: |
+          mkdir -p $HOME/theos/sdks
+          SDK_URL="https://github.com/theos/sdks/releases/download/16.2/iPhoneOS16.2.sdk.tar.xz"
+          SDK_DIR="$HOME/theos/sdks/iPhoneOS16.2.sdk"
+          if [ ! -d "$SDK_DIR" ]; then
+            wget -q $SDK_URL
+            tar -xf iPhoneOS16.2.sdk.tar.xz -C $HOME/theos/sdks
+          fi
 
       - name: Unzip source files
         run: |
