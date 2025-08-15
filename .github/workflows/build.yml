@@ -1,4 +1,4 @@
-name: Build WeChat & WCPulse (macOS + cache)
+name: Build WeChat & WCPulse (macOS + cache + ldid)
 
 on:
   push:
@@ -37,6 +37,13 @@ jobs:
           fi
           echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
           echo "$GITHUB_WORKSPACE/theos/bin" >> $GITHUB_PATH
+
+      # 4.1 安装 ldid
+      - name: Install ldid
+        run: |
+          curl -LO https://github.com/theos/ldid/releases/latest/download/ldid_mac
+          sudo mv ldid_mac /usr/local/bin/ldid
+          sudo chmod +x /usr/local/bin/ldid
 
       # 5. 设置 GNU Make
       - name: Setup GNU Make
