@@ -19,11 +19,12 @@ jobs:
         os: [macos-latest, ubuntu-latest]
 
     steps:
+      # 1. Checkout 代码和子模块
       - uses: actions/checkout@v4.2.2
         with:
           submodules: true
 
-      # 缓存 Theos
+      # 2. 使用缓存 Theos
       - name: Use cache
         id: cache
         uses: actions/cache@v4.2.1
@@ -33,7 +34,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-theos-
 
-      # 安装依赖 + Theos + SDK + Swift toolchain
+      # 3. 安装依赖 + Theos + SDK + Swift toolchain
       - name: Prepare Theos
         shell: bash
         env:
@@ -41,6 +42,7 @@ jobs:
         run: |
           THEOS="${GITHUB_WORKSPACE}/theos"
           echo "THEOS=$THEOS" >> $GITHUB_ENV
+          mkdir -p "$THEOS"
 
           if [[ "$RUNNER_OS" == "macOS" ]]; then
             brew analytics off
@@ -52,13 +54,15 @@ jobs:
             sudo apt update
             sudo apt install -y build-essential fakeroot libz3-dev rsync curl perl unzip git libplist-utils p7zip-full
 
-            if ! sudo apt install -y libtinfo5; then
+            # 兼容 libtinfo5/libtinfo6
+            if ! dpkg -s libtinfo5 &>/dev/null; then
               sudo apt install -y libtinfo6 libncurses6
               sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
             fi
           fi
 
-          if [ ! -d "$THEOS" ]; then
+          # 下载 Theos
+          if [ ! -d "$THEOS/.git" ]; then
             git clone https://github.com/roothide/theos $THEOS --recursive
           fi
 
@@ -70,7 +74,7 @@ jobs:
             git submodule update --init
           fi
 
-          # Linux toolchain
+          # Linux Swift toolchain
           if [[ "$RUNNER_OS" == "Linux" ]] && [ ! -d "$THEOS/toolchain" ]; then
             TMP_DL=$(mktemp -d)
             wget --no-verbose https://github.com/kabiroberai/swift-toolchain-linux/releases/download/v2.3.0/swift-5.8-ubuntu22.04.tar.xz -P $TMP_DL
@@ -79,9 +83,9 @@ jobs:
             rm -rf $TMP_DL
           fi
 
-          # SDKs
-          if [ ! -d "$THEOS/sdks" ] || [ -z "$(ls -A $THEOS/sdks)" ]; then
-            mkdir -p "$THEOS/sdks"
+          # 下载 SDKs
+          mkdir -p "$THEOS/sdks"
+          if [ -z "$(ls -A $THEOS/sdks)" ]; then
             cd "$THEOS/sdks"
             wget --no-verbose https://github.com/theos/sdks/archive/master.zip
             TMP=$(mktemp -d)
@@ -90,29 +94,29 @@ jobs:
             rm -rf master.zip $TMP
           fi
 
-      # 解压源码
+      # 4. 解压源码
       - name: Unzip source files
         run: |
           unzip -o WeChat.zip -d WeChat
           unzip -o "WCPulse源代码.zip" -d WCPulse
 
-      # 构建 WeChat tweak
+      # 5. 构建 WeChat tweak
       - name: Build WeChat tweak
         working-directory: ./WeChat/WeChat
         run: |
-          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu || nproc)
-          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu || nproc)
-          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu || nproc)
+          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu 2>/dev/null || nproc)
+          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu 2>/dev/null || nproc)
+          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu 2>/dev/null || nproc)
 
-      # 构建 WCPulse tweak
+      # 6. 构建 WCPulse tweak
       - name: Build WCPulse tweak
         working-directory: ./WCPulse/WCPulse
         run: |
-          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu || nproc)
-          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu || nproc)
-          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu || nproc)
+          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu 2>/dev/null || nproc)
+          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu 2>/dev/null || nproc)
+          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu 2>/dev/null || nproc)
 
-      # 上传 .deb
+      # 7. 上传 .deb 包
       - name: Upload .deb artifacts
         uses: actions/upload-artifact@v4.6.0
         with:
