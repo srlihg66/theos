@@ -1,10 +1,15 @@
-name: Build WeChat & WCPulse (Ultra Fast)
+name: Build WeChat & WCPulse (macOS + Linux + cache + optional Orion)
 
 on:
   push:
     branches: [ main ]
   pull_request:
   workflow_dispatch:
+    inputs:
+      enable_orion:
+        description: 'Enable Orion (Swift tweak support)'
+        required: false
+        default: 'false'
 
 jobs:
   build:
@@ -14,109 +19,102 @@ jobs:
         os: [macos-latest, ubuntu-latest]
 
     steps:
-      # 1. Checkout code
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
         with:
           submodules: true
 
-      # 2. Cache Theos + SDKs + Toolchain
-      - name: Cache Theos + SDK + Toolchain
-        id: theos-cache
-        uses: actions/cache@v4
+      # 缓存 Theos
+      - name: Use cache
+        id: cache
+        uses: actions/cache@v4.2.1
         with:
-          path: |
-            ${{ github.workspace }}/theos
-            ${{ github.workspace }}/.brew_cache
-            ${{ github.workspace }}/.apt_cache
+          path: ${{ github.workspace }}/theos
           key: ${{ runner.os }}-theos-${{ hashFiles('**/WeChat.zip','**/WCPulse源代码.zip') }}
           restore-keys: |
             ${{ runner.os }}-theos-
 
-      # 3. Install macOS dependencies
-      - name: Install dependencies (macOS)
-        if: runner.os == 'macOS'
+      # 安装依赖 + Theos + SDK + Swift toolchain
+      - name: Prepare Theos
+        shell: bash
+        env:
+          ENABLE_ORION: ${{ github.event.inputs.enable_orion }}
         run: |
-          export HOMEBREW_CACHE=${{ github.workspace }}/.brew_cache
-          brew update
-          brew install git perl clang make dpkg unzip curl
-          curl -LO https://github.com/theos/ldid/releases/latest/download/ldid_mac
-          sudo mv ldid_mac /usr/local/bin/ldid
-          sudo chmod +x /usr/local/bin/ldid
-          echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
-
-      # 4. Install Linux dependencies
-      - name: Install dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential fakeroot libtinfo5 libz3-dev rsync curl perl unzip git libplist-utils
-
-      # 5. Setup Theos environment
-      - name: Setup Theos
-        run: |
-          THEOS=${{ github.workspace }}/theos
+          THEOS="${GITHUB_WORKSPACE}/theos"
           echo "THEOS=$THEOS" >> $GITHUB_ENV
+
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew analytics off
+            brew install ldid make
+            echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
+          fi
+
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt update
+            sudo apt install -y build-essential fakeroot libz3-dev rsync curl perl unzip git libplist-utils p7zip-full
+
+            if ! sudo apt install -y libtinfo5; then
+              sudo apt install -y libtinfo6 libncurses6
+              sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
+            fi
+          fi
+
           if [ ! -d "$THEOS" ]; then
-            git clone --recursive https://github.com/roothide/theos $THEOS
+            git clone https://github.com/roothide/theos $THEOS --recursive
           fi
 
-      # 6. Enable Orion branch (Swift tweak)
-      - name: Enable Orion
-        run: |
-          THEOS=${{ github.workspace }}/theos
-          cd $THEOS
-          git fetch
-          git checkout orion || echo "Orion branch not found, using default"
-          git submodule update --init --recursive
-
-      # 7. Download iOS SDKs (cache-aware)
-      - name: Download iOS SDKs
-        run: |
-          THEOS=${{ github.workspace }}/theos
-          mkdir -p $THEOS/sdks
-          if [ ! "$(ls -A $THEOS/sdks)" ]; then
-            wget -q https://github.com/theos/sdks/releases/download/16.2/iPhoneOS16.2.sdk.tar.xz -O $THEOS/sdks/iPhoneOS16.2.sdk.tar.xz
-            tar -xf $THEOS/sdks/iPhoneOS16.2.sdk.tar.xz -C $THEOS/sdks
+          # 可选启用 Orion
+          if [[ "$ENABLE_ORION" == "true" ]]; then
+            cd "$THEOS"
+            git fetch
+            git checkout orion
+            git submodule update --init
           fi
 
-      # 8. Linux Swift toolchain (cache-aware)
-      - name: Linux Swift toolchain
-        if: runner.os == 'Linux'
-        run: |
-          THEOS=${{ github.workspace }}/theos
-          mkdir -p $THEOS/toolchain
-          if [ ! "$(ls -A $THEOS/toolchain)" ]; then
+          # Linux toolchain
+          if [[ "$RUNNER_OS" == "Linux" ]] && [ ! -d "$THEOS/toolchain" ]; then
             TMP_DL=$(mktemp -d)
             wget --no-verbose https://github.com/kabiroberai/swift-toolchain-linux/releases/download/v2.3.0/swift-5.8-ubuntu22.04.tar.xz -P $TMP_DL
-            tar -xvf $TMP_DL/swift-5.8-ubuntu22.04.tar.xz -C $THEOS/toolchain
+            mkdir -p "$THEOS/toolchain"
+            tar -xvf $TMP_DL/swift-5.8-ubuntu22.04.tar.xz -C "$THEOS/toolchain"
             rm -rf $TMP_DL
           fi
 
-      # 9. Unzip source files
+          # SDKs
+          if [ ! -d "$THEOS/sdks" ] || [ -z "$(ls -A $THEOS/sdks)" ]; then
+            mkdir -p "$THEOS/sdks"
+            cd "$THEOS/sdks"
+            wget --no-verbose https://github.com/theos/sdks/archive/master.zip
+            TMP=$(mktemp -d)
+            7z x master.zip -o$TMP
+            mv $TMP/*-master/*.sdk .
+            rm -rf master.zip $TMP
+          fi
+
+      # 解压源码
       - name: Unzip source files
         run: |
           unzip -o WeChat.zip -d WeChat
           unzip -o "WCPulse源代码.zip" -d WCPulse
 
-      # 10. Build WeChat tweak
+      # 构建 WeChat tweak
       - name: Build WeChat tweak
         working-directory: ./WeChat/WeChat
         run: |
-          make package FINALPACKAGE=1 -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
-          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
-          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu || nproc)
+          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu || nproc)
+          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu || nproc)
 
-      # 11. Build WCPulse tweak
+      # 构建 WCPulse tweak
       - name: Build WCPulse tweak
         working-directory: ./WCPulse/WCPulse
         run: |
-          make package FINALPACKAGE=1 -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
-          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
-          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu || nproc)
+          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu || nproc)
+          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu || nproc)
 
-      # 12. Upload all .deb files
+      # 上传 .deb
       - name: Upload .deb artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.0
         with:
           name: Tweaks-deb
           path: '**/*.deb'
