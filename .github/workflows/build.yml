@@ -1,68 +1,68 @@
-name: Build WeChat & WCPulse from ZIP (Linux + SDK)
+name: Build WeChat & WCPulse (macOS + cache)
 
 on:
   push:
     branches: [ main ]
+  pull_request:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      # 1. Checkout 代码和子模块
+      - uses: actions/checkout@v4.2.2
         with:
           submodules: true
 
-      - name: Install dependencies
+      # 2. 设置缓存 key
+      - name: Check cache
         run: |
-          sudo apt-get update
-          sudo apt-get install -y git perl clang make fakeroot dpkg unzip curl lzip wget libncurses-dev
-          # 安装最新 ldid
-          curl -LO https://github.com/theos/ldid/releases/latest/download/ldid_linux_x86_64
-          sudo mv ldid_linux_x86_64 /usr/local/bin/ldid
-          sudo chmod +x /usr/local/bin/ldid
+          echo upstream_heads=`git ls-remote https://github.com/roothide/theos | head -n 1 | cut -f 1`-`git ls-remote https://github.com/theos/sdks | head -n 1 | cut -f 1` >> $GITHUB_ENV
 
-      - name: Install Theos
+      # 3. 使用缓存
+      - name: Use cache
+        id: cache
+        uses: actions/cache@v4.2.1
+        with:
+          path: ${{ github.workspace }}/theos
+          key: ${{ runner.os }}-${{ env.upstream_heads }}
+
+      # 4. 安装依赖 & Theos
+      - name: Prepare Theos
+        uses: huami1314/theos-action@main
+
+      # 5. 设置 GNU Make
+      - name: Setup GNU Make
         run: |
-          git clone --recursive https://github.com/theos/theos.git ~/theos
-          echo "THEOS=~/theos" >> $GITHUB_ENV
-          echo "$HOME/theos/bin" >> $GITHUB_PATH
+          echo "$(brew --prefix)/opt/make/libexec/gnubin" >> $GITHUB_PATH
 
-      - name: Install iOS SDK
-        run: |
-          mkdir -p $HOME/theos/sdks
-          SDK_URL="https://github.com/theos/sdks/releases/download/16.2/iPhoneOS16.2.sdk.tar.xz"
-          SDK_ARCHIVE="iPhoneOS16.2.sdk.tar.xz"
-          SDK_DIR="$HOME/theos/sdks/iPhoneOS16.2.sdk"
-
-          if [ ! -d "$SDK_DIR" ]; then
-            echo "Downloading SDK..."
-            wget -O $SDK_ARCHIVE $SDK_URL
-            echo "Extracting SDK..."
-            tar -xJf $SDK_ARCHIVE -C $HOME/theos/sdks
-          else
-            echo "SDK already exists, skipping download."
-          fi
-
+      # 6. 解压源码
       - name: Unzip source files
         run: |
           unzip -o WeChat.zip -d WeChat
           unzip -o "WCPulse源代码.zip" -d WCPulse
 
+      # 7. 构建 WeChat tweak
       - name: Build WeChat tweak
         working-directory: ./WeChat/WeChat
         run: |
-          make package FINALPACKAGE=1 THEOS=$THEOS
+          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
 
+      # 8. 构建 WCPulse tweak
       - name: Build WCPulse tweak
         working-directory: ./WCPulse/WCPulse
         run: |
-          make package FINALPACKAGE=1 THEOS=$THEOS
+          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
 
+      # 9. 上传 .deb 包
       - name: Upload .deb artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.0
         with:
           name: Tweaks-deb
           path: |
