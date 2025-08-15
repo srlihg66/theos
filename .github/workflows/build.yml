@@ -1,4 +1,4 @@
-name: Build WeChat & WCPulse (macOS + cache)
+name: Build WeChat & WCPulse (macOS + cache + ldid + dependencies)
 
 on:
   push:
@@ -16,22 +16,42 @@ jobs:
         with:
           submodules: true
 
+      # 1.1 安装构建依赖
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install git perl clang make dpkg unzip curl
+
       # 2. 设置缓存 key
       - name: Check cache
         run: |
           echo upstream_heads=`git ls-remote https://github.com/roothide/theos | head -n 1 | cut -f 1`-`git ls-remote https://github.com/theos/sdks | head -n 1 | cut -f 1` >> $GITHUB_ENV
 
-      # 3. 使用缓存
+      # 3. 使用缓存（缓存整个 Theos，包括 SDK）
       - name: Use cache
         id: cache
         uses: actions/cache@v4.2.1
         with:
           path: ${{ github.workspace }}/theos
           key: ${{ runner.os }}-${{ env.upstream_heads }}
+          restore-keys: |
+            ${{ runner.os }}-
 
-      # 4. 安装依赖 & Theos
+      # 4. 安装 Theos（clone 到 workspace，如果缓存未命中）
       - name: Prepare Theos
-        uses: huami1314/theos-action@main
+        run: |
+          if [ ! -d "$GITHUB_WORKSPACE/theos" ]; then
+            git clone --recursive https://github.com/theos/theos.git $GITHUB_WORKSPACE/theos
+          fi
+          echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
+          echo "$GITHUB_WORKSPACE/theos/bin" >> $GITHUB_PATH
+
+      # 4.1 安装 ldid
+      - name: Install ldid
+        run: |
+          curl -LO https://github.com/theos/ldid/releases/latest/download/ldid_mac
+          sudo mv ldid_mac /usr/local/bin/ldid
+          sudo chmod +x /usr/local/bin/ldid
 
       # 5. 设置 GNU Make
       - name: Setup GNU Make
@@ -60,8 +80,16 @@ jobs:
           make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
           make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
 
-      # 9. 上传 .deb 包
-      - name: Upload .deb artifacts
+      # 9. 列出生成的 .deb 文件（调试用，可选）
+      - name: List generated .deb files
+        run: |
+          echo "WeChat .deb files:"
+          ls -l WeChat/WeChat/*.deb || echo "None found"
+          echo "WCPulse .deb files:"
+          ls -l WCPulse/WCPulse/*.deb || echo "None found"
+
+      # 10. 上传所有 .deb 文件
+      - name: Upload all .deb artifacts
         uses: actions/upload-artifact@v4.6.0
         with:
           name: Tweaks-deb
