@@ -1,4 +1,4 @@
-name: Build WeChat & WCPulse (macOS + cache)
+name: Smart Build Tweaks (macOS + cache)
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      # 1. Checkout 代码和子模块
+      # 1. Checkout 代码
       - uses: actions/checkout@v4.2.2
         with:
           submodules: true
@@ -24,7 +24,7 @@ jobs:
         uses: actions/cache@v4.2.1
         with:
           path: ${{ github.workspace }}/theos
-          key: macos-theos-${{ hashFiles('**/WeChat.zip','**/WCPulse源代码.zip') }}
+          key: macos-theos-${{ hashFiles('**/*.zip') }}
           restore-keys: |
             macos-theos-
 
@@ -66,29 +66,49 @@ jobs:
             rm -rf master.zip $TMP
           fi
 
-      # 4. 解压源码
-      - name: Unzip source files
+      # 4. 识别源码目录
+      - name: Detect source directories
+        id: detect
+        shell: bash
         run: |
-          unzip -o WeChat.zip -d WeChat
-          unzip -o "WCPulse源代码.zip" -d WCPulse
+          SRC_DIRS=()
 
-      # 5. 构建 WeChat tweak
-      - name: Build WeChat tweak
-        working-directory: ./WeChat/WeChat
+          # 处理压缩包
+          for f in *.zip; do
+            [ -f "$f" ] || continue
+            TMP=$(mktemp -d)
+            7z x "$f" -o"$TMP"
+            for d in "$TMP"/*; do
+              if [ -f "$d/Makefile" ]; then
+                SRC_DIRS+=("$d")
+              fi
+            done
+          done
+
+          # 当前目录扫描
+          for d in */; do
+            if [ -f "$d/Makefile" ] && [[ ! " ${SRC_DIRS[*]} " =~ " $d " ]]; then
+              SRC_DIRS+=("$d")
+            fi
+          done
+
+          echo "SRC_DIRS=${SRC_DIRS[*]}" >> $GITHUB_ENV
+          echo "Detected source directories: ${SRC_DIRS[*]}"
+
+      # 5. 构建源码
+      - name: Build Tweaks
+        shell: bash
         run: |
-          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
-          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
-          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          for dir in $SRC_DIRS; do
+            echo "Building $dir ..."
+            cd "$dir"
+            make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+            make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+            make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+            cd $GITHUB_WORKSPACE
+          done
 
-      # 6. 构建 WCPulse tweak
-      - name: Build WCPulse tweak
-        working-directory: ./WCPulse/WCPulse
-        run: |
-          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
-          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
-          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
-
-      # 7. 上传 .deb 包
+      # 6. 上传 .deb
       - name: Upload .deb artifacts
         uses: actions/upload-artifact@v4.6.0
         with:
