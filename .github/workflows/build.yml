@@ -1,9 +1,6 @@
-name: Build WeChat & WCPulse (macOS + Linux + cache + optional Orion)
+name: Build WeChat & WCPulse (macOS + cache)
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
   workflow_dispatch:
     inputs:
       enable_orion:
@@ -13,10 +10,7 @@ on:
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [macos-latest, ubuntu-latest]
+    runs-on: macos-latest
 
     steps:
       # 1. Checkout 代码和子模块
@@ -30,36 +24,23 @@ jobs:
         uses: actions/cache@v4.2.1
         with:
           path: ${{ github.workspace }}/theos
-          key: ${{ runner.os }}-theos-${{ hashFiles('**/WeChat.zip','**/WCPulse源代码.zip') }}
+          key: macos-theos-${{ hashFiles('**/WeChat.zip','**/WCPulse源代码.zip') }}
           restore-keys: |
-            ${{ runner.os }}-theos-
+            macos-theos-
 
-      # 3. 安装依赖 + Theos + SDK + Swift toolchain
+      # 3. 安装依赖 & Theos & SDK
       - name: Prepare Theos
         shell: bash
         env:
           ENABLE_ORION: ${{ github.event.inputs.enable_orion }}
         run: |
+          brew analytics off
+          brew install ldid make
+          echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
+
           THEOS="${GITHUB_WORKSPACE}/theos"
           echo "THEOS=$THEOS" >> $GITHUB_ENV
           mkdir -p "$THEOS"
-
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
-            brew analytics off
-            brew install ldid make
-            echo "$(brew --prefix make)/libexec/gnubin" >> $GITHUB_PATH
-          fi
-
-          if [[ "$RUNNER_OS" == "Linux" ]]; then
-            sudo apt update
-            sudo apt install -y build-essential fakeroot libz3-dev rsync curl perl unzip git libplist-utils p7zip-full
-
-            # 兼容 libtinfo5/libtinfo6
-            if ! dpkg -s libtinfo5 &>/dev/null; then
-              sudo apt install -y libtinfo6 libncurses6
-              sudo ln -sf /usr/lib/x86_64-linux-gnu/libtinfo.so.6 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
-            fi
-          fi
 
           # 下载 Theos
           if [ ! -d "$THEOS/.git" ]; then
@@ -72,15 +53,6 @@ jobs:
             git fetch
             git checkout orion
             git submodule update --init
-          fi
-
-          # Linux Swift toolchain
-          if [[ "$RUNNER_OS" == "Linux" ]] && [ ! -d "$THEOS/toolchain" ]; then
-            TMP_DL=$(mktemp -d)
-            wget --no-verbose https://github.com/kabiroberai/swift-toolchain-linux/releases/download/v2.3.0/swift-5.8-ubuntu22.04.tar.xz -P $TMP_DL
-            mkdir -p "$THEOS/toolchain"
-            tar -xvf $TMP_DL/swift-5.8-ubuntu22.04.tar.xz -C "$THEOS/toolchain"
-            rm -rf $TMP_DL
           fi
 
           # 下载 SDKs
@@ -104,17 +76,17 @@ jobs:
       - name: Build WeChat tweak
         working-directory: ./WeChat/WeChat
         run: |
-          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu 2>/dev/null || nproc)
-          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu 2>/dev/null || nproc)
-          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu 2>/dev/null || nproc)
+          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
 
       # 6. 构建 WCPulse tweak
       - name: Build WCPulse tweak
         working-directory: ./WCPulse/WCPulse
         run: |
-          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu 2>/dev/null || nproc)
-          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu 2>/dev/null || nproc)
-          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu 2>/dev/null || nproc)
+          make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+          make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
 
       # 7. 上传 .deb 包
       - name: Upload .deb artifacts
