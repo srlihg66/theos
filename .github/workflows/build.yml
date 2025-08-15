@@ -66,17 +66,21 @@ jobs:
             rm -rf master.zip $TMP
           fi
 
-      # 4. 识别源码目录
+      # 4. 智能识别源码目录
       - name: Detect source directories
         id: detect
         shell: bash
         run: |
           SRC_DIRS=()
 
+          # 创建输出 packages 目录
+          mkdir -p $GITHUB_WORKSPACE/packages
+
           # 处理压缩包
           for f in *.zip; do
             [ -f "$f" ] || continue
-            TMP=$(mktemp -d)
+            TMP="$GITHUB_WORKSPACE/tmp-$(basename "$f" .zip)"
+            mkdir -p "$TMP"
             7z x "$f" -o"$TMP"
             for d in "$TMP"/*; do
               if [ -f "$d/Makefile" ]; then
@@ -92,6 +96,7 @@ jobs:
             fi
           done
 
+          # 输出到环境变量
           echo "SRC_DIRS=${SRC_DIRS[*]}" >> $GITHUB_ENV
           echo "Detected source directories: ${SRC_DIRS[*]}"
 
@@ -102,9 +107,9 @@ jobs:
           for dir in $SRC_DIRS; do
             echo "Building $dir ..."
             cd "$dir"
-            make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
-            make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
-            make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+            make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu) PACKAGES_DIR=$GITHUB_WORKSPACE/packages
+            make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu) PACKAGES_DIR=$GITHUB_WORKSPACE/packages
+            make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu) PACKAGES_DIR=$GITHUB_WORKSPACE/packages
             cd $GITHUB_WORKSPACE
           done
 
@@ -113,4 +118,4 @@ jobs:
         uses: actions/upload-artifact@v4.6.0
         with:
           name: Tweaks-deb
-          path: '**/*.deb'
+          path: packages/*.deb
