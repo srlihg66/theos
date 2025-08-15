@@ -25,7 +25,8 @@ jobs:
       - name: Install Theos
         run: |
           git clone --recursive https://github.com/theos/theos.git ~/theos
-          echo "export THEOS=~/theos" >> $GITHUB_ENV
+          echo "THEOS=~/theos" >> $GITHUB_ENV
+          echo "PATH=$PATH:~/theos/bin" >> $GITHUB_ENV
 
       - name: Unzip source files
         run: |
@@ -35,12 +36,12 @@ jobs:
       - name: Build WeChat tweak
         working-directory: ./WeChat/WeChat
         run: |
-          make package FINALPACKAGE=1
+          make package FINALPACKAGE=1 THEOS=$THEOS
 
       - name: Build WCPulse tweak
         working-directory: ./WCPulse/WCPulse
         run: |
-          make package FINALPACKAGE=1
+          make package FINALPACKAGE=1 THEOS=$THEOS
 
       - name: Upload .deb artifacts
         uses: actions/upload-artifact@v4
