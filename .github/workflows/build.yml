@@ -15,8 +15,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt update
-          sudo apt install -y git perl clang make fakeroot dpkg unzip curl lzip wget libncurses5
+          sudo apt-get update
+          sudo apt-get install -y git perl clang make fakeroot dpkg unzip curl lzip wget libncurses-dev
           # 安装最新的 ldid
           curl -LO https://github.com/theos/ldid/releases/latest/download/ldid_linux_x86_64
           sudo mv ldid_linux_x86_64 /usr/local/bin/ldid
