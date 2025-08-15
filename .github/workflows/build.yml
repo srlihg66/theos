@@ -72,8 +72,6 @@ jobs:
         shell: bash
         run: |
           SRC_DIRS=()
-
-          # 创建输出 packages 目录
           mkdir -p $GITHUB_WORKSPACE/packages
 
           # 处理压缩包
@@ -96,20 +94,23 @@ jobs:
             fi
           done
 
-          # 输出到环境变量
           echo "SRC_DIRS=${SRC_DIRS[*]}" >> $GITHUB_ENV
           echo "Detected source directories: ${SRC_DIRS[*]}"
 
-      # 5. 构建源码
+      # 5. 构建源码并统一复制 .deb
       - name: Build Tweaks
         shell: bash
         run: |
+          mkdir -p $GITHUB_WORKSPACE/packages
           for dir in $SRC_DIRS; do
             echo "Building $dir ..."
             cd "$dir"
-            make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu) PACKAGES_DIR=$GITHUB_WORKSPACE/packages
-            make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu) PACKAGES_DIR=$GITHUB_WORKSPACE/packages
-            make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu) PACKAGES_DIR=$GITHUB_WORKSPACE/packages
+            make package FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+            make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+            make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
+
+            # 拷贝 .deb 到统一目录
+            cp -v packages/*.deb $GITHUB_WORKSPACE/packages/ 2>/dev/null || true
             cd $GITHUB_WORKSPACE
           done
 
