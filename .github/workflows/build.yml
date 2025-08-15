@@ -1,4 +1,4 @@
-name: Build WeChat & WCPulse (macOS + cache + ldid)
+name: Build WeChat & WCPulse (macOS + cache)
 
 on:
   push:
@@ -29,21 +29,9 @@ jobs:
           path: ${{ github.workspace }}/theos
           key: ${{ runner.os }}-${{ env.upstream_heads }}
 
-      # 4. 安装 Theos（clone 到 workspace）
+      # 4. 安装依赖 & Theos
       - name: Prepare Theos
-        run: |
-          if [ ! -d "$GITHUB_WORKSPACE/theos" ]; then
-            git clone --recursive https://github.com/theos/theos.git $GITHUB_WORKSPACE/theos
-          fi
-          echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
-          echo "$GITHUB_WORKSPACE/theos/bin" >> $GITHUB_PATH
-
-      # 4.1 安装 ldid
-      - name: Install ldid
-        run: |
-          curl -LO https://github.com/theos/ldid/releases/latest/download/ldid_mac
-          sudo mv ldid_mac /usr/local/bin/ldid
-          sudo chmod +x /usr/local/bin/ldid
+        uses: huami1314/theos-action@main
 
       # 5. 设置 GNU Make
       - name: Setup GNU Make
@@ -72,16 +60,8 @@ jobs:
           make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
           make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
 
-      # 9. 列出生成的 .deb 文件（调试用，可选）
-      - name: List generated .deb files
-        run: |
-          echo "WeChat .deb files:"
-          ls -l WeChat/WeChat/*.deb || echo "None found"
-          echo "WCPulse .deb files:"
-          ls -l WCPulse/WCPulse/*.deb || echo "None found"
-
-      # 10. 上传所有 .deb 文件
-      - name: Upload all .deb artifacts
+      # 9. 上传 .deb 包
+      - name: Upload .deb artifacts
         uses: actions/upload-artifact@v4.6.0
         with:
           name: Tweaks-deb
